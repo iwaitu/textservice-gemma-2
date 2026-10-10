@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Qwen3 Embedding Service</title>
+    <meta charset="utf-8">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; text-align: center; }
+        .links { text-align: center; margin-top: 30px; }
+        .links a {
+            display: inline-block;
+            margin: 10px;
+            padding: 12px 24px;
+            background-color: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        .links a:hover { background-color: #0056b3; }
+        .info { background-color: #e7f3ff; padding: 15px; border-radius: 4px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🚀 Qwen3 Embedding Service</h1>
+        
+        <div class="info">
+            <strong>服务说明：</strong>
+            <p>基于 Qwen3-Embedding-0.6B 模型的文本嵌入服务，支持离线 Swagger 文档。</p>
+            <ul>
+                <li><strong>/embed_text</strong> - 支持指令格式的文本嵌入（适用于查询）</li>
+                <li><strong>/embed_documents</strong> - 文档嵌入（不使用指令格式）</li>
+                <li><strong>/health</strong> - 健康检查</li>
+            </ul>
+        </div>
+
+        <div class="links">
+            <a href="/docs">📚 Swagger UI (离线)</a>
+            <a href="/redoc">📖 ReDoc</a>
+            <a href="/health">💓 健康检查</a>
+            <a href="/openapi.json">🔗 OpenAPI JSON</a>
+        </div>
+    </div>
+</body>
+</html>

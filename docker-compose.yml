@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  gemma-grpc-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "32688:32688"
+    environment:
+      - GRPC_PORT=32688
+      - EMBEDDING_MODEL_DIR=/app/Models/embeddinggemma-2-onnx
+      # 可选：MRL 截断维度 768 / 512 / 256 / 128
+      - EMBEDDING_DIMENSION=768
+      # 可选：rerank 后端 embedding（默认）/ cross-encoder（需同时挂载并设置 RERANKER_MODEL_DIR）
+      - RERANK_BACKEND=embedding
+      - ONNX_EXECUTION_PROVIDERS=CUDAExecutionProvider,CPUExecutionProvider
+      - MAX_CONCURRENT_INFERENCES=1
+      - EMBEDDING_MAX_BATCH_TOKENS=8192
+      - ORT_CUDA_GPU_MEM_LIMIT_MB=24576
+      - ORT_ENABLE_GPU_ARENA_SHRINKAGE=1
+      - CUDA_VISIBLE_DEVICES=0  # 指定使用哪个GPU
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    volumes:
+      - ./Models:/app/Models:ro  # 只读挂载模型文件
+    restart: unless-stopped
+    runtime: nvidia  # 使用NVIDIA Docker运行时
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import grpc, text_service_pb2, text_service_pb2_grpc; channel = grpc.insecure_channel('localhost:32688'); stub = text_service_pb2_grpc.TextGrpcServiceStub(channel); response = stub.HealthCheck(text_service_pb2.HealthCheckRequest(), timeout=5); channel.close(); raise SystemExit(0 if response.status == 'healthy' else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s  # GPU模型加载需要更多时间
+    networks:
+      - gemma-network
+
+networks:
+  gemma-network:
+    driver: bridge

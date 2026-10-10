@@ -1,0 +1,122 @@
+syntax = "proto3";
+
+package text_service;
+
+// 文本服务定义
+service TextGrpcService {
+    
+    // 文本重排序
+    rpc SimpleRerank(SimpleRerankRequest) returns (SimpleRerankResponse);
+    
+    // 文本嵌入向量生成
+    rpc EmbedText(EmbedTextRequest) returns (EmbedTextResponse);
+
+    // 文本分块
+    rpc SplitTextIntoChunks(SplitTextRequest) returns (SplitTextResponse);
+    
+    // 健康检查
+    rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+    
+    // 模型信息
+    rpc GetModelInfo(ModelInfoRequest) returns (ModelInfoResponse);
+}
+
+// 文本重排序请求
+message SimpleRerankRequest {
+    string prompt = 1;
+    repeated string text_blocks = 2;
+}
+
+// 重排序结果项
+message RerankResult {
+    double score = 1;
+    string text_block = 2;
+    int32 index = 3;
+}
+
+// 文本重排序响应
+message SimpleRerankResponse {
+    repeated RerankResult ranked_results = 1;
+    int32 total_blocks = 2;
+    string query = 3;
+}
+
+// 文本嵌入请求
+message EmbedTextRequest {
+    repeated string input = 1;
+}
+
+// 嵌入数据项
+message EmbeddingData {
+    string object = 1;
+    repeated float embedding = 2;
+    int32 index = 3;
+    int32 text_length = 4;
+}
+
+// 使用统计
+message Usage {
+    int32 prompt_tokens = 1;
+    int32 total_tokens = 2;
+}
+
+// 文本嵌入响应
+message EmbedTextResponse {
+    repeated EmbeddingData data = 1;
+    string model = 2;
+    string object = 3;
+    Usage usage = 4;
+}
+
+// 文本分块请求
+message SplitTextRequest {
+    string input = 1;
+    int32 chunk_size = 2;
+    int32 overlap_size = 3;
+}
+
+// 文本分块响应
+message SplitTextResponse {
+    repeated string chunks = 1;
+    int32 total_chunks = 2;
+    int32 chunk_size = 3;
+    int32 overlap_size = 4;
+    double average_chunk_length = 5;
+}
+
+// 健康检查请求
+message HealthCheckRequest {
+}
+
+// 模型状态
+message ModelStatus {
+    bool reranker = 1;
+    bool embedding = 2;
+}
+
+// 健康检查响应
+message HealthCheckResponse {
+    string status = 1;
+    double timestamp = 2;
+    string memory_usage_mb = 3;
+    string cpu_percent = 4;
+    int32 pid = 5;
+    ModelStatus models_loaded = 6;
+}
+
+// 模型信息请求
+message ModelInfoRequest {
+}
+
+// 模型详情
+message ModelDetail {
+    bool loaded = 1;
+    string type = 2;
+    string model_name = 3;
+}
+
+// 模型信息响应
+message ModelInfoResponse {
+    ModelDetail reranker_model = 1;
+    ModelDetail embedding_model = 2;
+}
