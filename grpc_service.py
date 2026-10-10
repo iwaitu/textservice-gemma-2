@@ -7,6 +7,7 @@ from concurrent import futures
 import grpc
 
 from gemma_engine import TextEngine
+from image_utils import decode_image_bytes
 import text_service_pb2
 import text_service_pb2_grpc
 
@@ -78,6 +79,37 @@ class TextGrpcServiceServicer(text_service_pb2_grpc.TextGrpcServiceServicer):
             context.set_details(str(exc))
             return text_service_pb2.EmbedTextResponse()
 
+    def EmbedImage(self, request, context):
+        try:
+            images = [decode_image_bytes(data) for data in request.images]
+        except ValueError as exc:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details(str(exc))
+            return text_service_pb2.EmbedTextResponse()
+
+        try:
+            embeddings, token_counts, total_tokens = self.engine.embed_images(images)
+            data = [
+                text_service_pb2.EmbeddingData(
+                    object="embedding",
+                    embedding=embedding,
+                    index=index,
+                    text_length=token_count,
+                )
+                for index, (embedding, token_count) in enumerate(zip(embeddings.tolist(), token_counts))
+            ]
+            return text_service_pb2.EmbedTextResponse(
+                data=data,
+                model=self.embedding_model_name,
+                object="list",
+                usage=text_service_pb2.Usage(prompt_tokens=total_tokens, total_tokens=total_tokens),
+            )
+        except Exception as exc:
+            LOGGER.exception("EmbedImage failed")
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(str(exc))
+            return text_service_pb2.EmbedTextResponse()
+
     def SplitTextIntoChunks(self, request, context):
         try:
             chunks = self.engine.split_text(
@@ -139,7 +171,16 @@ def serve():
 
     port = os.environ.get("GRPC_PORT", "32688")
     servicer = TextGrpcServiceServicer()
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
+    max_message_mb = int(os.environ.get("GRPC_MAX_MESSAGE_MB", "64"))
+    server = grpc.server(
+        futures.ThreadPoolExecutor(max_workers=4),
+        options=[
+            # 禁止端口复用：同一端口重复启动时直接报错，而不是多个进程悄悄分流请求
+            ("grpc.so_reuseport", 0),
+            ("grpc.max_receive_message_length", max_message_mb * 1024 * 1024),
+            ("grpc.max_send_message_length", max_message_mb * 1024 * 1024),
+        ],
+    )
     text_service_pb2_grpc.add_TextGrpcServiceServicer_to_server(
         servicer,
         server,

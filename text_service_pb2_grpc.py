@@ -5,7 +5,7 @@ import warnings
 
 import text_service_pb2 as text__service__pb2
 
-GRPC_GENERATED_VERSION = '1.73.0'
+GRPC_GENERATED_VERSION = '1.75.1'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -60,6 +60,11 @@ class TextGrpcServiceStub(object):
                 request_serializer=text__service__pb2.ModelInfoRequest.SerializeToString,
                 response_deserializer=text__service__pb2.ModelInfoResponse.FromString,
                 _registered_method=True)
+        self.EmbedImage = channel.unary_unary(
+                '/text_service.TextGrpcService/EmbedImage',
+                request_serializer=text__service__pb2.EmbedImageRequest.SerializeToString,
+                response_deserializer=text__service__pb2.EmbedTextResponse.FromString,
+                _registered_method=True)
 
 
 class TextGrpcServiceServicer(object):
@@ -101,6 +106,13 @@ class TextGrpcServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def EmbedImage(self, request, context):
+        """图片嵌入向量生成（与文本向量处于同一向量空间，可直接用文本检索图片）
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_TextGrpcServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -128,6 +140,11 @@ def add_TextGrpcServiceServicer_to_server(servicer, server):
                     servicer.GetModelInfo,
                     request_deserializer=text__service__pb2.ModelInfoRequest.FromString,
                     response_serializer=text__service__pb2.ModelInfoResponse.SerializeToString,
+            ),
+            'EmbedImage': grpc.unary_unary_rpc_method_handler(
+                    servicer.EmbedImage,
+                    request_deserializer=text__service__pb2.EmbedImageRequest.FromString,
+                    response_serializer=text__service__pb2.EmbedTextResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -266,6 +283,33 @@ class TextGrpcService(object):
             '/text_service.TextGrpcService/GetModelInfo',
             text__service__pb2.ModelInfoRequest.SerializeToString,
             text__service__pb2.ModelInfoResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def EmbedImage(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/text_service.TextGrpcService/EmbedImage',
+            text__service__pb2.EmbedImageRequest.SerializeToString,
+            text__service__pb2.EmbedTextResponse.FromString,
             options,
             channel_credentials,
             insecure,

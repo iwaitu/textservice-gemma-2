@@ -3,11 +3,14 @@
 用法:
     python compat_check.py --grpc 127.0.0.1:32688
     python compat_check.py --rest http://127.0.0.1:8000
+    # 图片向量检查默认使用 tests/fixtures/cats.jpg（不存在时自动下载），--skip-image 跳过
     # 同时与线上 TextServiceQwen3 对比响应字段结构（向量维度与分数除外）:
     python compat_check.py --grpc 127.0.0.1:32688 --reference-grpc qwen3-host:32688
 """
 
 import argparse
+import base64
+import os
 import sys
 
 import grpc
@@ -29,6 +32,13 @@ TEXTS = ["Hello world", "你好世界", "Beijing is the capital of China."]
 LONG_TEXT = "EmbeddingGemma 2 是一个多模态嵌入模型。" * 40
 
 FAILURES = []
+
+IMAGE_FIXTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests", "fixtures", "cats.jpg")
+IMAGE_FIXTURE_URL = "https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/cats.jpg"
+IMAGE_QUERIES = [
+    "task: search result | query: cats sleeping on a couch",
+    "task: search result | query: a red sports car on the highway",
+]
 
 
 def check(condition, message):
@@ -192,6 +202,72 @@ def verify_rest(base_url):
     return r
 
 
+def load_image_fixture(path):
+    if not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        response = requests.get(IMAGE_FIXTURE_URL, timeout=60)
+        response.raise_for_status()
+        with open(path, "wb") as handle:
+            handle.write(response.content)
+    with open(path, "rb") as handle:
+        return handle.read()
+
+
+def check_image_semantics(name, image_vector, query_vectors):
+    scores = [sum(a * b for a, b in zip(image_vector, query)) for query in query_vectors]
+    check(scores[0] > scores[1], f"{name} cat image closer to cat query ({scores[0]:.3f} > {scores[1]:.3f})")
+
+
+def verify_grpc_image(target, image_bytes):
+    print(f"gRPC {target} EmbedImage")
+    channel = grpc.insecure_channel(target)
+    stub = text_service_pb2_grpc.TextGrpcServiceStub(channel)
+    response = stub.EmbedImage(text_service_pb2.EmbedImageRequest(images=[image_bytes, image_bytes]), timeout=300)
+    check(response.object == "list" and len(response.data) == 2, "EmbedImage returns one item per image")
+    check([item.index for item in response.data] == [0, 1], "EmbedImage index order")
+    check(all(item.text_length > 0 for item in response.data), "EmbedImage.text_length = visual tokens")
+    check(response.usage.total_tokens > 0, "EmbedImage.usage")
+    norm = sum(v * v for v in response.data[0].embedding) ** 0.5
+    check(abs(norm - 1.0) < 1e-3, "EmbedImage vector is L2 normalized")
+    queries = stub.EmbedText(text_service_pb2.EmbedTextRequest(input=IMAGE_QUERIES), timeout=120)
+    check(len(queries.data[0].embedding) == len(response.data[0].embedding), "image and text vectors share dimension")
+    check_image_semantics("EmbedImage", response.data[0].embedding, [item.embedding for item in queries.data])
+    check(len(stub.EmbedImage(text_service_pb2.EmbedImageRequest(images=[]), timeout=30).data) == 0,
+          "EmbedImage empty input")
+    try:
+        stub.EmbedImage(text_service_pb2.EmbedImageRequest(images=[b"not an image"]), timeout=30)
+        check(False, "EmbedImage invalid image -> INVALID_ARGUMENT")
+    except grpc.RpcError as exc:
+        check(exc.code() == grpc.StatusCode.INVALID_ARGUMENT, "EmbedImage invalid image -> INVALID_ARGUMENT")
+    channel.close()
+
+
+def verify_rest_image(base_url, image_bytes):
+    print(f"REST {base_url} /embed_image")
+    encoded = base64.b64encode(image_bytes).decode()
+    response = requests.post(
+        f"{base_url}/embed_image",
+        json={"input": [encoded, f"data:image/jpeg;base64,{encoded}"]},
+        timeout=300,
+    )
+    check(response.status_code == 200, "POST /embed_image 200")
+    body = response.json()
+    check(set(body) == {"data", "model", "object", "usage"}, "/embed_image keys same as /embed_text")
+    check(set(body["data"][0]) == {"object", "embedding", "index", "tokens_length"}, "/embed_image item keys")
+    upload = requests.post(
+        f"{base_url}/embed_image/upload",
+        files=[("files", ("cats.jpg", image_bytes, "image/jpeg"))],
+        timeout=300,
+    )
+    check(upload.status_code == 200 and len(upload.json()["data"]) == 1, "POST /embed_image/upload")
+    diff = max(abs(a - b) for a, b in zip(body["data"][0]["embedding"], upload.json()["data"][0]["embedding"]))
+    check(diff < 1e-5, "base64 and upload give the same vector")
+    queries = requests.post(f"{base_url}/embed_text", json={"input": IMAGE_QUERIES}, timeout=120).json()
+    check_image_semantics("/embed_image", body["data"][0]["embedding"], [item["embedding"] for item in queries["data"]])
+    bad = requests.post(f"{base_url}/embed_image", json={"input": ["not base64!"]}, timeout=30)
+    check(bad.status_code == 400, "/embed_image invalid input -> 400")
+
+
 def compare_grpc_shapes(candidate, reference):
     print("gRPC structure diff vs reference")
     for name, message in candidate.items():
@@ -222,16 +298,24 @@ def main():
     parser.add_argument("--rest", help="REST base url of textservice-gemma-2, e.g. http://127.0.0.1:8000")
     parser.add_argument("--reference-grpc", help="gRPC target of TextServiceQwen3 for structure comparison")
     parser.add_argument("--reference-rest", help="REST base url of TextServiceQwen3 for structure comparison")
+    parser.add_argument("--image", default=IMAGE_FIXTURE, help="image used for image embedding checks")
+    parser.add_argument("--skip-image", action="store_true", help="skip image embedding checks")
     args = parser.parse_args()
     if not args.grpc and not args.rest:
         parser.error("specify --grpc and/or --rest")
 
+    image_bytes = None if args.skip_image else load_image_fixture(args.image)
+
     if args.grpc:
         candidate = verify_grpc(args.grpc)
+        if image_bytes is not None:
+            verify_grpc_image(args.grpc, image_bytes)
         if args.reference_grpc:
             compare_grpc_shapes(candidate, grpc_calls(args.reference_grpc))
     if args.rest:
         candidate = verify_rest(args.rest.rstrip("/"))
+        if image_bytes is not None:
+            verify_rest_image(args.rest.rstrip("/"), image_bytes)
         if args.reference_rest:
             compare_rest_shapes(candidate, rest_calls(args.reference_rest.rstrip("/")))
 

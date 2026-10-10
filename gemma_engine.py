@@ -15,6 +15,7 @@ import numpy as np
 import onnxruntime as ort
 from transformers import AutoTokenizer
 
+from image_utils import SUPPORTED_SOFT_TOKENS, preprocess_image
 from onnx_provider_utils import (
     COREML_PROVIDER,
     CPU_PROVIDER,
@@ -64,6 +65,17 @@ _inference_semaphore = threading.Semaphore(_MAX_CONCURRENT)
 # Matryoshka 截断维度：768（原生）/ 512 / 256 / 128
 SUPPORTED_EMBEDDING_DIMENSIONS = (768, 512, 256, 128)
 EMBEDDING_DIMENSION = int(os.environ.get("EMBEDDING_DIMENSION", "768"))
+
+# 图片向量：视觉编码器（onnx/vision_encoder.onnx，fp32 约 671 MB）。
+# ENABLE_IMAGE_EMBEDDING=auto 时，模型文件存在才加载；true 时缺文件直接报错；false 不加载。
+VISION_MODEL_PATH = os.environ.get(
+    "VISION_MODEL_PATH",
+    os.path.join(EMBEDDING_DIR, "onnx", "vision_encoder.onnx"),
+)
+ENABLE_IMAGE_EMBEDDING = os.environ.get("ENABLE_IMAGE_EMBEDDING", "auto").strip().lower()
+# 每张图片的视觉 token 预算：70 / 140 / 280（默认）/ 560 / 1120，越大细节越多、越慢
+IMAGE_MAX_SOFT_TOKENS = int(os.environ.get("IMAGE_MAX_SOFT_TOKENS", "280"))
+IMAGE_BATCH_SIZE = max(1, int(os.environ.get("IMAGE_BATCH_SIZE", "4")))
 
 # EmbeddingGemma 2 的任务前缀（见模型卡 Task Instruction Prefixes）。
 # /embed_text 与 EmbedText 默认不加前缀，与 TextServiceQwen3 行为一致（原文直接编码）；
@@ -371,6 +383,34 @@ class GemmaEmbeddingModel:
             embeddings = embeddings[:, :EMBEDDING_DIMENSION]
         return _normalize_embeddings(embeddings).astype(np.float32)
 
+    def embed_image_features(self, image_features, soft_token_counts):
+        """把视觉编码器输出的 soft token 填入 <|image|> 占位符，得到每张图片的向量。
+
+        每张图片对应一行：<bos> <|image> <|image|>*N <image|> <eos>（与 EmbeddingGemma2Processor 一致）。
+        image_features 按图片顺序拼接，行数等于 sum(soft_token_counts)。
+        """
+        with self.tokenizer_lock:
+            bos_id = self.tokenizer.bos_token_id
+            eos_id = self.tokenizer.eos_token_id
+            pad_id = self.tokenizer.pad_token_id
+            boi_id, image_id, eoi_id = self.tokenizer.convert_tokens_to_ids(
+                [self.tokenizer.boi_token, self.tokenizer.image_token, self.tokenizer.eoi_token]
+            )
+
+        rows = [[bos_id, boi_id] + [image_id] * count + [eoi_id, eos_id] for count in soft_token_counts]
+        width = max(len(row) for row in rows)
+        input_ids = np.full((len(rows), width), pad_id, dtype=np.int64)
+        attention_mask = np.zeros((len(rows), width), dtype=np.int64)
+        for index, row in enumerate(rows):
+            input_ids[index, :len(row)] = row
+            attention_mask[index, :len(row)] = 1
+
+        input_feed = dict(self._feature_feed)
+        input_feed["image_features"] = np.ascontiguousarray(image_features, dtype=np.float32)
+        input_feed["input_ids"] = input_ids
+        input_feed["attention_mask"] = attention_mask
+        return self._forward(input_feed, attention_mask), int(attention_mask.sum())
+
     def embed(self, texts, prompt=None):
         """返回 (embeddings[N, D], 每条原文 token 数, 实际计算的 token 总数)。"""
         if not texts:
@@ -419,6 +459,71 @@ class GemmaEmbeddingModel:
 
     def split_text(self, text, chunk_size, overlap_size):
         return split_text(text, chunk_size, overlap_size, self.tokenizer, self.tokenizer_lock)
+
+
+class GemmaVisionEncoder:
+    """EmbeddingGemma 2 视觉编码器（onnx/vision_encoder*.onnx）：图片 patch -> soft token 特征。"""
+
+    def __init__(self, model_path=VISION_MODEL_PATH):
+        # CoreML EP 只能接管部分算子，实测比纯 CPU 慢约 2.5 倍，同样跳过。
+        self.session = _create_session(model_path, excluded_providers=(COREML_PROVIDER,))
+        self.run_options = _create_run_options()
+        LOGGER.info(
+            "Vision encoder providers: %s max_soft_tokens=%s batch_size=%s",
+            self.session.get_providers(),
+            IMAGE_MAX_SOFT_TOKENS,
+            IMAGE_BATCH_SIZE,
+        )
+
+    def encode(self, pixel_values, position_ids):
+        with _inference_semaphore:
+            outputs = self.session.run(
+                None,
+                {"pixel_values": pixel_values, "pixel_position_ids": position_ids},
+                run_options=self.run_options,
+            )
+        return np.asarray(outputs[0], dtype=np.float32)
+
+
+class ImageEmbedder:
+    """图片 -> 与文本同一向量空间的 L2 归一化向量。"""
+
+    def __init__(self, embedding_model):
+        self.embedding_model = embedding_model
+        self.encoder = GemmaVisionEncoder()
+
+    @property
+    def session(self):
+        return self.encoder.session
+
+    def embed(self, images):
+        """images: PIL.Image 列表。返回 (embeddings[N, D], 每张图片的 soft token 数, token 总数)。"""
+        if not images:
+            return np.empty((0, 0), dtype=np.float32), [], 0
+
+        embeddings = []
+        token_counts = []
+        total_tokens = 0
+        for start in range(0, len(images), IMAGE_BATCH_SIZE):
+            processed = [preprocess_image(image, IMAGE_MAX_SOFT_TOKENS) for image in images[start:start + IMAGE_BATCH_SIZE]]
+            pixel_values = np.stack([item[0] for item in processed])
+            position_ids = np.stack([item[1] for item in processed])
+            counts = [item[2] for item in processed]
+            del processed
+
+            features = self.encoder.encode(pixel_values, position_ids)
+            del pixel_values, position_ids
+            if features.shape[0] != sum(counts):
+                raise RuntimeError(
+                    f"Vision encoder returned {features.shape[0]} soft tokens, expected {sum(counts)}"
+                )
+            batch_embeddings, batch_tokens = self.embedding_model.embed_image_features(features, counts)
+            embeddings.extend(batch_embeddings)
+            token_counts.extend(counts)
+            total_tokens += batch_tokens
+            del features
+
+        return np.stack(embeddings, axis=0), token_counts, total_tokens
 
 
 class EmbeddingReranker:
@@ -537,6 +642,7 @@ class TextEngine:
             self.reranker = EmbeddingReranker(self.embedding)
         else:
             raise ValueError("RERANK_BACKEND must be 'embedding' or 'cross-encoder'")
+        self.images = self._load_image_embedder()
 
         LOGGER.info(
             "Inference limits: concurrency=%s embedding_batch_tokens=%s "
@@ -546,6 +652,16 @@ class TextEngine:
             RERANK_BACKEND,
             RERANK_SCORE_MODE if RERANK_BACKEND == "embedding" else "sigmoid(logit)",
         )
+
+    def _load_image_embedder(self):
+        if ENABLE_IMAGE_EMBEDDING in {"0", "false", "no", "off"}:
+            return None
+        if IMAGE_MAX_SOFT_TOKENS not in SUPPORTED_SOFT_TOKENS:
+            raise ValueError(f"IMAGE_MAX_SOFT_TOKENS must be one of {SUPPORTED_SOFT_TOKENS}")
+        if ENABLE_IMAGE_EMBEDDING == "auto" and not os.path.exists(VISION_MODEL_PATH):
+            LOGGER.warning("Vision encoder not found at %s, image embedding disabled", VISION_MODEL_PATH)
+            return None
+        return ImageEmbedder(self.embedding)
 
     @property
     def embedding_model_name(self):
@@ -561,6 +677,14 @@ class TextEngine:
 
     def embed(self, texts):
         return self.embedding.embed(texts)
+
+    def embed_images(self, images):
+        if self.images is None:
+            raise RuntimeError(
+                "Image embedding is not enabled; download onnx/vision_encoder.onnx "
+                "(python tools/download_model.py) and restart the service"
+            )
+        return self.images.embed(images)
 
     def rerank(self, query, documents, instruction=None):
         """返回按分数降序排列的 (index, document, score) 列表。"""
@@ -578,3 +702,5 @@ class TextEngine:
     def close(self):
         self.embedding.session = None
         self.reranker.session = None
+        if self.images is not None:
+            self.images.encoder.session = None

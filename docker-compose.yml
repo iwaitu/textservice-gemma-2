@@ -14,6 +14,9 @@ services:
       - EMBEDDING_DIMENSION=768
       # 可选：rerank 后端 embedding（默认）/ cross-encoder（需同时挂载并设置 RERANKER_MODEL_DIR）
       - RERANK_BACKEND=embedding
+      # 图片向量：auto（存在 vision_encoder.onnx 即启用）/ true / false；视觉 token 预算 70/140/280/560/1120
+      - ENABLE_IMAGE_EMBEDDING=auto
+      - IMAGE_MAX_SOFT_TOKENS=280
       - ONNX_EXECUTION_PROVIDERS=CUDAExecutionProvider,CPUExecutionProvider
       - MAX_CONCURRENT_INFERENCES=1
       - EMBEDDING_MAX_BATCH_TOKENS=8192

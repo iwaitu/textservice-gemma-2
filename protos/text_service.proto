@@ -19,6 +19,9 @@ service TextGrpcService {
     
     // 模型信息
     rpc GetModelInfo(ModelInfoRequest) returns (ModelInfoResponse);
+
+    // 图片嵌入向量生成（与文本向量处于同一向量空间，可直接用文本检索图片）
+    rpc EmbedImage(EmbedImageRequest) returns (EmbedTextResponse);
 }
 
 // 文本重排序请求
@@ -44,6 +47,11 @@ message SimpleRerankResponse {
 // 文本嵌入请求
 message EmbedTextRequest {
     repeated string input = 1;
+}
+
+// 图片嵌入请求：每个元素是一张图片的原始文件字节（JPEG / PNG / WebP / GIF / BMP 等）
+message EmbedImageRequest {
+    repeated bytes images = 1;
 }
 
 // 嵌入数据项

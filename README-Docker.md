@@ -73,7 +73,7 @@ docker run -d \
 Models/
 └── embeddinggemma-2-onnx/
     ├── tokenizer.json ...
-    └── onnx/model.onnx, model.onnx_data
+    └── onnx/model.onnx(_data), vision_encoder.onnx(_data)
 ```
 
 ## 🔍 健康检查
@@ -135,6 +135,7 @@ deploy:
 
 服务启动后，可通过 gRPC 客户端调用以下服务：
 - `EmbedText`: 文本嵌入
+- `EmbedImage`: 图片嵌入（新增，需要 vision_encoder.onnx）
 - `SimpleRerank`: 文档重排序
 - `SplitTextIntoChunks`: 文本分块
 - `HealthCheck`: 健康检查

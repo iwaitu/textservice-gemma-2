@@ -11,6 +11,7 @@ ENV CUDA_VISIBLE_DEVICES=0
 ENV EMBEDDING_MODEL_DIR=/app/Models/embeddinggemma-2-onnx
 ENV ONNX_EXECUTION_PROVIDERS=CUDAExecutionProvider,CPUExecutionProvider
 ENV MAX_CONCURRENT_INFERENCES=1
+ENV IMAGE_MAX_SOFT_TOKENS=280
 ENV EMBEDDING_MAX_BATCH_TOKENS=8192
 ENV ORT_CUDA_GPU_MEM_LIMIT_MB=24576
 ENV ORT_ENABLE_GPU_ARENA_SHRINKAGE=1
@@ -36,6 +37,7 @@ RUN grep -v "^onnxruntime\(\[.*\]\)\?>=" requirements.txt > requirements.docker.
 
 # 复制运行 gRPC 服务所需的最小文件集
 COPY gemma_engine.py ./
+COPY image_utils.py ./
 COPY grpc_service.py ./
 COPY onnx_provider_utils.py ./
 COPY text_service_pb2.py ./

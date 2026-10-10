@@ -4,7 +4,7 @@ import logging
 import os
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.openapi.docs import (
     get_redoc_html,
     get_swagger_ui_html,
@@ -21,6 +21,7 @@ from gemma_engine import (
     TextEngine,
     resolve_model_name,
 )
+from image_utils import IMAGE_MAX_BYTES, decode_image_bytes, load_image_reference
 
 
 LOGGER = logging.getLogger(__name__)
@@ -141,6 +142,57 @@ async def embed_text(request: EmbedTextRequest):
     except Exception as exc:
         LOGGER.exception("Error during embedding")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+class EmbedImageRequest(BaseModel):
+    input: List[str]
+
+
+def _embed_images_response(images):
+    try:
+        current = _ensure_ready()
+        embeddings, token_counts, total_tokens = current.embed_images(images)
+        data = [
+            EmbeddingData(
+                embedding=embedding,
+                index=index,
+                tokens_length=token_count,
+            )
+            for index, (embedding, token_count) in enumerate(zip(embeddings.tolist(), token_counts))
+        ]
+        usage = Usage(prompt_tokens=total_tokens, total_tokens=total_tokens)
+        return EmbedTextResponse(data=data, usage=usage)
+    except Exception as exc:
+        LOGGER.exception("Error during image embedding")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/embed_image", response_model=EmbedTextResponse, tags=["Embedding"])
+def embed_image(request: EmbedImageRequest):
+    """图片向量。input 每项为 base64 字符串、data URI（data:image/png;base64,...），
+    或在 ALLOW_IMAGE_URLS=1 时的 http(s) URL。返回结构与 /embed_text 相同，
+    tokens_length 为该图片占用的视觉 token 数。"""
+    images = []
+    for index, item in enumerate(request.input):
+        try:
+            images.append(load_image_reference(item))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"input[{index}]: {exc}") from exc
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"input[{index}]: failed to load image: {exc}") from exc
+    return _embed_images_response(images)
+
+
+@app.post("/embed_image/upload", response_model=EmbedTextResponse, tags=["Embedding"])
+def embed_image_upload(files: List[UploadFile] = File(...)):
+    """以 multipart/form-data 上传一张或多张图片（字段名 files），返回顺序与上传顺序一致。"""
+    images = []
+    for index, upload in enumerate(files):
+        try:
+            images.append(decode_image_bytes(upload.file.read(IMAGE_MAX_BYTES + 1)))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"files[{index}] {upload.filename}: {exc}") from exc
+    return _embed_images_response(images)
 
 
 @app.post("/rerank", response_model=RerankResponse, tags=["Reranking"])
