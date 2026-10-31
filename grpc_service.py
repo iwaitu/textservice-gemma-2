@@ -14,6 +14,46 @@ import text_service_pb2_grpc
 
 LOGGER = logging.getLogger(__name__)
 
+# 各 RPC 里可以统计"条数"的请求字段；HealthCheck 会被容器每 30 秒调用一次，只记 DEBUG。
+_ITEM_FIELDS = {"EmbedText": "input", "SimpleRerank": "text_blocks", "EmbedImage": "images"}
+_QUIET_METHODS = {"HealthCheck"}
+
+
+class RequestLogInterceptor(grpc.ServerInterceptor):
+    """每个请求记一行日志：方法、条数、耗时、状态码。"""
+
+    def intercept_service(self, continuation, handler_call_details):
+        handler = continuation(handler_call_details)
+        if handler is None or handler.unary_unary is None:
+            return handler
+
+        method = handler_call_details.method.rsplit("/", 1)[-1]
+        behavior = handler.unary_unary
+
+        def logged(request, context):
+            started = time.perf_counter()
+            status = "OK"
+            try:
+                return behavior(request, context)
+            except Exception:
+                status = "EXCEPTION"
+                raise
+            finally:
+                code = context.code() if hasattr(context, "code") else None
+                if status == "OK" and code not in (None, grpc.StatusCode.OK):
+                    status = code.name
+                field = _ITEM_FIELDS.get(method)
+                items = f" items={len(getattr(request, field))}" if field else ""
+                level = logging.DEBUG if method in _QUIET_METHODS and status == "OK" else logging.INFO
+                if status != "OK":
+                    level = logging.WARNING
+                LOGGER.log(
+                    level, "%s%s status=%s time=%.0fms",
+                    method, items, status, (time.perf_counter() - started) * 1000,
+                )
+
+        return handler._replace(unary_unary=logged)
+
 
 class TextGrpcServiceServicer(text_service_pb2_grpc.TextGrpcServiceServicer):
     def __init__(self):
@@ -174,6 +214,7 @@ def serve():
     max_message_mb = int(os.environ.get("GRPC_MAX_MESSAGE_MB", "64"))
     server = grpc.server(
         futures.ThreadPoolExecutor(max_workers=4),
+        interceptors=[RequestLogInterceptor()],
         options=[
             # 禁止端口复用：同一端口重复启动时直接报错，而不是多个进程悄悄分流请求
             ("grpc.so_reuseport", 0),
