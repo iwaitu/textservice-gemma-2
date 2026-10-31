@@ -1,10 +1,10 @@
 # textservice-gemma-2
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104%2B-009688.svg)](https://fastapi.tiangolo.com/)
 [![gRPC](https://img.shields.io/badge/gRPC-1.75%2B-4285F4.svg)](https://grpc.io/)
-[![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime-1.20%2B-005CED.svg)](https://onnxruntime.ai/)
+[![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime-1.31%2B-005CED.svg)](https://onnxruntime.ai/)
 [![Model](https://img.shields.io/badge/Model-EmbeddingGemma%202-FF6F00.svg)](https://huggingface.co/google/embeddinggemma-2)
 [![Docker](https://img.shields.io/badge/Docker-Supported-2496ED.svg)](https://www.docker.com/)
 
@@ -98,7 +98,9 @@ python tools/download_model.py
 docker-compose up -d
 ```
 
-镜像默认启动 gRPC 服务（端口 32688），需要 NVIDIA Container Toolkit。详见 [README-Docker.md](README-Docker.md)。
+镜像默认启动 gRPC 服务（端口 32688），需要 NVIDIA Container Toolkit，宿主机 GPU 驱动需支持 CUDA 13（驱动 ≥ 580）。详见 [README-Docker.md](README-Docker.md)。
+
+> **务必使用 onnxruntime-gpu ≥ 1.31.1。** 实测 1.20 ~ 1.23 的 CUDA 后端处理本模型时会读到错误的形状值（报 Reshape 错误），并且在关闭报错后仍会**静默算出错误的向量**（与 CPU 的余弦相似度只有 0.6 ~ 0.97）。1.31.1 已修复，GPU 与 CPU 结果一致。新版需要 Python ≥ 3.11 和 CUDA 13 运行库，因此镜像基于 `python:3.12-slim`，CUDA / cuDNN 库由 pip 的 `onnxruntime-gpu[cuda,cudnn]` 提供。
 
 ## API
 
@@ -281,6 +283,10 @@ textservice-gemma-2/
 ```
 
 ## 更新日志
+
+### 未发布
+- 升级到 onnxruntime-gpu 1.31.1：修复旧版 CUDA 后端对本模型的形状计算错误与静默算错向量；Docker 基础镜像改为 `python:3.12-slim`（CUDA 13 运行库由 pip 提供）
+- Python 要求提高到 3.11+
 
 ### v1.1.0
 - 新增图片向量：REST `/embed_image`、`/embed_image/upload`，gRPC `EmbedImage`；与文本向量同一向量空间，支持以文搜图

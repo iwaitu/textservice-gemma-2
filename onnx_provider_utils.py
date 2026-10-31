@@ -4,6 +4,14 @@ import platform
 import onnxruntime as ort
 
 
+# 通过 pip 安装 onnxruntime-gpu[cuda,cudnn] 时，CUDA / cuDNN 库位于 site-packages/nvidia，
+# 需要先预加载 ORT 才能找到；没有这些库（CPU / CoreML 环境）时静默跳过。
+if hasattr(ort, "preload_dlls"):
+    try:
+        ort.preload_dlls()
+    except Exception:
+        pass
+
 CPU_PROVIDER = "CPUExecutionProvider"
 CUDA_PROVIDER = "CUDAExecutionProvider"
 COREML_PROVIDER = "CoreMLExecutionProvider"
