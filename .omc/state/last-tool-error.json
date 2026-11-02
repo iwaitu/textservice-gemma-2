@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"export MSYS_NO_PATHCONV=1; docker rm -f gemma-gpu-dbg >/dev/null 2>&1; docker run -d --name gemma-gpu-dbg --gpus all --entrypoint sleep ghcr.io/iwaitu/textservice-gemma-2:1.1.0 infinity >/...",
+  "error": "Exit code 1\nGetFileAttributesEx E:\\tmp\\q1.py: The system cannot find the file specified.",
+  "timestamp": "2026-10-31T15:01:56.900Z",
+  "retry_count": 1
+}

@@ -1,0 +1,152 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1793457210502,
+  "projectRoot": "E:\\LLMServers\\textservice-gemma-2",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Python",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "requirements.txt"
+        ]
+      }
+    ],
+    "frameworks": [],
+    "packageManager": "pip",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "static"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "protos": {
+      "path": "protos",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1793457210483,
+      "keyFiles": [
+        "text_service.proto"
+      ]
+    },
+    "static": {
+      "path": "static",
+      "purpose": "Static files",
+      "fileCount": 4,
+      "lastAccessed": 1793457210484,
+      "keyFiles": [
+        "index.html",
+        "swagger-ui-bundle.js",
+        "swagger-ui-standalone-preset.js",
+        "swagger-ui.css"
+      ]
+    },
+    "tools": {
+      "path": "tools",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1793457210485,
+      "keyFiles": [
+        "download_model.py"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "gemma_engine.py",
+      "accessCount": 7,
+      "lastAccessed": 1793459970693,
+      "type": "file"
+    },
+    {
+      "path": "Dockerfile",
+      "accessCount": 7,
+      "lastAccessed": 1793459998310,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 5,
+      "lastAccessed": 1793460379920,
+      "type": "file"
+    },
+    {
+      "path": "requirements.txt",
+      "accessCount": 3,
+      "lastAccessed": 1793459995995,
+      "type": "file"
+    },
+    {
+      "path": "grpc_service.py",
+      "accessCount": 3,
+      "lastAccessed": 1793460797526,
+      "type": "file"
+    },
+    {
+      "path": "onnx_provider_utils.py",
+      "accessCount": 2,
+      "lastAccessed": 1793459998919,
+      "type": "file"
+    },
+    {
+      "path": "main.py",
+      "accessCount": 1,
+      "lastAccessed": 1793457223463,
+      "type": "file"
+    },
+    {
+      "path": "protos\\text_service.proto",
+      "accessCount": 1,
+      "lastAccessed": 1793457223919,
+      "type": "file"
+    },
+    {
+      "path": "image_utils.py",
+      "accessCount": 1,
+      "lastAccessed": 1793457227833,
+      "type": "file"
+    },
+    {
+      "path": "tools\\download_model.py",
+      "accessCount": 1,
+      "lastAccessed": 1793457229215,
+      "type": "file"
+    },
+    {
+      "path": "compat_check.py",
+      "accessCount": 1,
+      "lastAccessed": 1793458861550,
+      "type": "directory"
+    },
+    {
+      "path": "",
+      "accessCount": 1,
+      "lastAccessed": 1793460369035,
+      "type": "directory"
+    }
+  ],
+  "userDirectives": []
+}
